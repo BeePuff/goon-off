@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Office Horror – Phase D</title>
+<style>
+body { margin:0; overflow:hidden; background:black; }
+#menu {
+  position:absolute; inset:0;
+  display:flex; justify-content:center; align-items:center;
+  flex-direction:column;
+  background:black; color:white;
+  font-family:Arial;
+  z-index:10;
+}
+button { padding:14px 30px; font-size:18px; }
+#hint {
+  position:fixed;
+  bottom:20px;
+  width:100%;
+  text-align:center;
+  color:#bbb;
+  font-family:Arial;
+}
+</style>
+</head>
+<body>
+
+<div id="menu">
+  <h1>OFFICE DESCENT</h1>
+  <p>The lights don’t stay on.</p>
+  <button onclick="start()">START</button>
+</div>
+
+<div id="hint">WASD move • Mouse look • F flashlight</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script>
+let scene, camera, renderer;
+let player, flashlight;
+let keys = {};
+let yaw = 0, pitch = 0;
+let pointerLocked = false;
+let started = false;
+
+const ROOM = { minX:-18, maxX:18, minZ:-28, maxZ:28 };
+
+addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
+addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
+
+addEventListener("mousemove", e => {
+  if (!pointerLocked) return;
+  yaw -= e.movementX * 0.002;
+  pitch -= e.movementY * 0.002;
+  pitch = Math.max(-1.2, Math.min(1.2, pitch));
+});
+
+addEventListener("click", () => {
+  if (!pointerLocked && renderer) renderer.domElement.requestPointerLock();
+});
+
+document.addEventListener("pointerlockchange", () => {
+  pointerLocked = document.pointerLockElement === renderer?.domElement;
+});
+
+function start() {
+  document.getElementById("menu").style.display = "none";
+  init();
+  started = true;
+}
+
+function wall(x,y,z,w,h,d) {
+  const m = new THREE.Mesh(
+    new THREE.BoxGeometry(w,h,d),
+    new THREE.MeshStandardMaterial({ color:0x666666 })
+  );
+  m.position.set(x,y,z);
+  scene.add(m);
+}
+
+let flickerLights = [];
+
+function init() {
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x050505);
+
+  camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 1000);
+  renderer = new THREE.WebGLRenderer({ antialias:true });
+  renderer.setSize(innerWidth, innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  // Ambient low light
+  scene.add(new THREE.AmbientLight(0x222222));
+
+  // Flickering ceiling lights
+  for (let i=0;i<6;i++) {
+    const light = new THREE.PointLight(0xffffff, 1.2, 20);
+    light.position.set(-12 + i*5, 3.5, 0);
+    scene.add(light);
+    flickerLights.push(light);
+  }
+
+  // Flashlight
+  flashlight = new THREE.SpotLight(0xffffff, 3, 30, Math.PI/6, 0.5);
+  flashlight.visible = false;
+  scene.add(flashlight);
+  scene.add(flashlight.target);
+
+  // Floor
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(40,60),
+    new THREE.MeshStandardMaterial({ color:0x444444 })
+  );
+  floor.rotation.x = -Math.PI/2;
+  scene.add(floor);
+
+  // Ceiling
+  wall(0,4,0,40,0.3,60);
+
+  // Outer walls
+  wall(0,2,-30,40,4,0.5);
+  wall(0,2,30,40,4,0.5);
+  wall(-20,2,0,0.5,4,60);
+  wall(20,2,0,0.5,4,60);
+
+  // Hallway walls
+  wall(-5,2,0,0.5,4,40);
+  wall(5,2,0,0.5,4,40);
+
+  // Player
+  player = new THREE.Object3D();
+  player.position.set(0,1.6,20);
+  scene.add(player);
+
+  animate();
+}
+
+function update() {
+  if (!started) return;
+
+  const speed = 0.08;
+
+  const forward = new THREE.Vector3(Math.sin(yaw),0,Math.cos(yaw));
+  const right = new THREE.Vector3(forward.z,0,-forward.x);
+
+  if (keys.w) player.position.addScaledVector(forward, -speed);
+  if (keys.s) player.position.addScaledVector(forward, speed);
+  if (keys.a) player.position.addScaledVector(right, -speed);
+  if (keys.d) player.position.addScaledVector(right, speed);
+
+  // Clamp player inside room (NO CLIPPING)
+  player.position.x = Math.max(ROOM.minX, Math.min(ROOM.maxX, player.position.x));
+  player.position.z = Math.max(ROOM.minZ, Math.min(ROOM.maxZ, player.position.z));
+
+  if (keys.f) {
+    flashlight.visible = !flashlight.visible;
+    keys.f = false;
+  }
+
+  camera.position.copy(player.position);
+  camera.rotation.order = "YXZ";
+  camera.rotation.y = yaw;
+  camera.rotation.x = pitch;
+
+  flashlight.position.copy(camera.position);
+  flashlight.target.position.copy(
+    camera.position.clone().add(forward)
+  );
+
+  // Flicker logic
+  flickerLights.forEach(l => {
+    l.intensity = 0.6 + Math.random()*0.8;
+    if (Math.random() < 0.01) l.intensity = 0;
+  });
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  update();
+  renderer.render(scene, camera);
+}
+</script>
+
+</body>
+</html>
