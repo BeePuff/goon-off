@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Office Arena</title>
+<style>
+body { margin:0; overflow:hidden; background:#eee; font-family:Arial; }
+
+.screen {
+  position:absolute; inset:0;
+  display:flex; justify-content:center; align-items:center;
+  flex-direction:column;
+  background:#f2f2f2;
+  z-index:10;
+}
+
+input {
+  padding:10px; margin:6px; font-size:16px;
+}
+button {
+  padding:14px 32px;
+  font-size:18px;
+  margin-top:10px;
+  cursor:pointer;
+}
+
+#crosshair {
+  position:fixed;
+  top:50%; left:50%;
+  width:6px; height:6px;
+  margin:-3px;
+  background:#ff3333;
+  border-radius:50%;
+  pointer-events:none;
+  display:none;
+}
+
+#hint {
+  position:fixed;
+  bottom:15px;
+  width:100%;
+  text-align:center;
+  color:#444;
+}
+</style>
+</head>
+<body>
+
+<!-- MAIN MENU -->
+<div id="menu" class="screen">
+  <h1>OFFICE ARENA</h1>
+  <button onclick="showCreate()">Create Lobby</button>
+  <button onclick="showJoin()">Join Lobby</button>
+</div>
+
+<!-- CREATE -->
+<div id="create" class="screen" style="display:none">
+  <h2>Create Lobby</h2>
+  <input id="cName" placeholder="Your name">
+  <input id="cPass" placeholder="Lobby password">
+  <button onclick="createLobby()">Create</button>
+  <button onclick="back()">Back</button>
+</div>
+
+<!-- JOIN -->
+<div id="join" class="screen" style="display:none">
+  <h2>Join Lobby</h2>
+  <input id="jName" placeholder="Your name">
+  <input id="jPass" placeholder="Lobby password">
+  <button onclick="joinLobby()">Join</button>
+  <button onclick="back()">Back</button>
+</div>
+
+<div id="hint">WASD move • Mouse look • Click shoot</div>
+<div id="crosshair"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script>
+/* ---------------- LOBBY SYSTEM ---------------- */
+let lobby = null;
+function showCreate(){ hideAll(); create.style.display="flex"; }
+function showJoin(){ hideAll(); join.style.display="flex"; }
+function back(){ hideAll(); menu.style.display="flex"; }
+
+function hideAll(){
+  menu.style.display=create.style.display=join.style.display="none";
+}
+
+function createLobby(){
+  const name=cName.value.trim();
+  const pass=cPass.value;
+  if(!name||!pass) return alert("Fill all fields");
+  lobby={ password:pass, players:[name] };
+  startGame();
+}
+
+function joinLobby(){
+  const name=jName.value.trim();
+  const pass=jPass.value;
+  if(!lobby||pass!==lobby.password) return alert("Wrong password");
+  lobby.players.push(name);
+  startGame();
+}
+
+/* ---------------- THREE SETUP ---------------- */
+let scene,camera,renderer,player;
+let yaw=0,pitch=0;
+let keys={},started=false,locked=false;
+const raycaster=new THREE.Raycaster();
+const mouse=new THREE.Vector2(0,0);
+
+/* INPUT */
+addEventListener("keydown",e=>keys[e.key.toLowerCase()]=true);
+addEventListener("keyup",e=>keys[e.key.toLowerCase()]=false);
+
+addEventListener("mousemove",e=>{
+  if(!locked) return;
+  yaw -= e.movementX*0.002;
+  pitch -= e.movementY*0.002;
+  pitch=Math.max(-1.2,Math.min(1.2,pitch));
+});
+
+addEventListener("click",()=>{
+  if(!locked) renderer.domElement.requestPointerLock();
+  else shoot();
+});
+
+document.addEventListener("pointerlockchange",()=>{
+  locked=document.pointerLockElement===renderer?.domElement;
+});
+
+/* START GAME */
+function startGame(){
+  hideAll();
+  crosshair.style.display="block";
+  init();
+  started=true;
+}
+
+/* INIT */
+function init(){
+  scene=new THREE.Scene();
+  scene.background=new THREE.Color(0xf4f6f8);
+
+  camera=new THREE.PerspectiveCamera(75,innerWidth/innerHeight,0.1,1000);
+  renderer=new THREE.WebGLRenderer({antialias:true});
+  renderer.setSize(innerWidth,innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  scene.add(new THREE.AmbientLight(0xffffff,0.9));
+  const sun=new THREE.DirectionalLight(0xffffff,0.8);
+  sun.position.set(0,10,0);
+  scene.add(sun);
+
+  const floor=new THREE.Mesh(
+    new THREE.BoxGeometry(50,0.2,50),
+    new THREE.MeshLambertMaterial({color:0xdcdcdc})
+  );
+  scene.add(floor);
+
+  player=new THREE.Object3D();
+  player.position.set(0,1.6,20);
+  scene.add(player);
+
+  animate();
+}
+
+/* SHOOT */
+function shoot(){
+  raycaster.setFromCamera(mouse,camera);
+  const p=raycaster.ray.origin.clone().add(raycaster.ray.direction.clone().multiplyScalar(2));
+  const flash=new THREE.Mesh(
+    new THREE.SphereGeometry(0.06,6,6),
+    new THREE.MeshBasicMaterial({color:0xff4444})
+  );
+  flash.position.copy(p);
+  scene.add(flash);
+  setTimeout(()=>scene.remove(flash),80);
+
+  // recoil animation
+  pitch += 0.05;
+}
+
+/* UPDATE + ANIMATION */
+let walkTime=0;
+function update(){
+  if(!started) return;
+
+  const speed=0.07;
+  let moving=false;
+
+  const forward=new THREE.Vector3(Math.sin(yaw),0,Math.cos(yaw));
+  const right=new THREE.Vector3(forward.z,0,-forward.x);
+
+  if(keys.w){ player.position.addScaledVector(forward,-speed); moving=true; }
+  if(keys.s){ player.position.addScaledVector(forward,speed); moving=true; }
+  if(keys.a){ player.position.addScaledVector(right,-speed); moving=true; }
+  if(keys.d){ player.position.addScaledVector(right,speed); moving=true; }
+
+  // walk animation
+  if(moving){
+    walkTime+=0.1;
+    camera.position.y=player.position.y + Math.sin(walkTime)*0.05;
+  } else {
+    walkTime=0;
+    camera.position.y=player.position.y;
+  }
+
+  camera.position.x=player.position.x;
+  camera.position.z=player.position.z;
+  camera.rotation.order="YXZ";
+  camera.rotation.y=yaw;
+  camera.rotation.x=pitch;
+}
+
+function animate(){
+  requestAnimationFrame(animate);
+  update();
+  renderer.render(scene,camera);
+}
+</script>
+</body>
+</html>
+
